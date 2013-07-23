@@ -6,9 +6,14 @@ import re
 import logging
 from multiprocessing import Process
 from multiprocessing import Manager
+from loadManager import LoadManager
 
 manager = Manager()
-queue = 
+queue = None
+doneTasks = None #list that will contain done tasks
+runningTasks = None #list that will contain currently running tasks
+enqueueTasks = None #list that will contain tasks which haven't been started yet
+
 processName = 'loadManager'
 managerProcess = None
 
@@ -27,17 +32,33 @@ class asynchat_handler(asynchat.async_chat):
 		"""
 		global managerProcess
 		global queue
-		if managerProcess.is_alive() is True:
+		if managerProcess is not None and managerProcess.is_alive() is True:
 			for t in tasks:
+				enqueueTasks.append(t)
 				queue.put(t)
 		else:
-			global porcessName
+			global manager
+			global processName
+			if queue is None:
+				queue = manager.Queue()
+				doneTasks = manager.list()
+				runningTasks = manager.list()
+				enqueueTasks = manager.list()
 			#initialize queue
 			for t in tasks:
+				enqueueTasks.append(t)
 				queue.put(t)
 			loadManager = LoadManager()
 			managerProcess = Process(target=loadManager, name=processName, args=(queue, len(tasks), processesPerNode))
 			process.start()
+
+	def sendCurrentStateInfo(self):
+		logging.info('send current work state')
+		global doneTasks, runningTasks, enqueueTasks
+		message = protocol.SEND_CURRENT_STATE_INFO+protocol.MESSAGE_TYPE_TERMINATOR
+		message = protocol.wrapWorkStateInfo(done=doneTasks, running=runningTasks, enqueue=enqueueTasks)
+		producer = protocol.simple_producer(message)
+		self.push_with_producer(producer)
 	
 	def sendFileTreePaths(self):
 		logging.info('send message')
@@ -47,7 +68,7 @@ class asynchat_handler(asynchat.async_chat):
 		producer = protocol.simple_producer(message)
 		self.push_with_producer(producer)
 
-	actions = {protocol.GET_SCORPION_PATHS: sendFileTreePaths, protocol.SUBMIT_TASKS: submitTasks}
+	actions = {protocol.GET_SCORPION_PATHS: sendFileTreePaths, protocol.SUBMIT_TASKS: submitTasks, protocol.GET_WORK_STATE_INFO: sendCurrentStateInfo}
 	
 	def __init__(self, sock, addr):
         	asynchat.async_chat.__init__(self, sock=sock)
