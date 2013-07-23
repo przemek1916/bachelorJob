@@ -3,18 +3,51 @@ import socket
 import asynchat
 import protocol
 import re
+import logging
+from multiprocessing import Process
+from multiprocessing import Manager
+
+manager = Manager()
+queue = 
+processName = 'loadManager'
+managerProcess = None
 
 class asynchat_handler(asynchat.async_chat):
+
+	def submitTasks(self):
+		logging.info('submitTasks')
+		tasks = re.split(protocol.FILE_SEPARATOR, self.ibuffer)
+		"""
+		prepare jobs to submit
+
+		check if process exist and is doing jobs = true #tip: use Process'es method is_alive()
+			put tasks to queue
+		      else
+			start new process
+		"""
+		global managerProcess
+		global queue
+		if managerProcess.is_alive() is True:
+			for t in tasks:
+				queue.put(t)
+		else:
+			global porcessName
+			#initialize queue
+			for t in tasks:
+				queue.put(t)
+			loadManager = LoadManager()
+			managerProcess = Process(target=loadManager, name=processName, args=(queue, len(tasks), processesPerNode))
+			process.start()
 	
 	def sendFileTreePaths(self):
-		print('send message')
+		logging.info('send message')
 		rootPath = self.ibuffer
 		message = protocol.SEND_SCORPION_PATHS+protocol.MESSAGE_TYPE_TERMINATOR
 		message += protocol.getFileRootTree(rootPath)+protocol.MESSAGE_END_TERMINATOR
 		producer = protocol.simple_producer(message)
 		self.push_with_producer(producer)
 
-	actions = {protocol.GET_SCORPION_PATHS: sendFileTreePaths}
+	actions = {protocol.GET_SCORPION_PATHS: sendFileTreePaths, protocol.SUBMIT_TASKS: submitTasks}
 	
 	def __init__(self, sock, addr):
         	asynchat.async_chat.__init__(self, sock=sock)
@@ -29,7 +62,7 @@ class asynchat_handler(asynchat.async_chat):
         	self.ibuffer += (data)
 
 	def found_terminator(self):
-		print('found terminator')
+		logging.info('found terminator')
 		request = re.search(self.requestPattern, self.ibuffer)
 		action = request.group()[:-protocol.MESSAGE_TYPE_TERMINATOR_LENGTH]
 		self.ibuffer = self.ibuffer[len(action)+protocol.MESSAGE_TYPE_TERMINATOR_LENGTH:]
